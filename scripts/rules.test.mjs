@@ -120,3 +120,44 @@ test('день: совет про доли рубрик за 7 дней', () => 
   const d = { date: '2026-11-06', posts: [post('2026-11-06', 1, '08:00', 'ремонт')] };
   assert.match(checkDay(d, { config, history }).warnings.join(), /Рубрика «ремонт»: 100 % за 7 дней, цель 20 %/);
 });
+
+const withText = s => errs({ text: s + ' А вы?' });
+
+test('Барн: падежи, латиница, вопросы ловятся; Барнаул и глагол «завидовать» нет', () => {
+  for (const s of ['Был в Барне, а вы?', 'барна нет?', 'Барном', 'Барну', 'zavidovo barn?', 'zavidovo?', 'Завидове?', 'Завидова', 'barn'])
+    assert.match(errs({ text: s }).join(), /Завидово Барн/, s);
+  for (const s of ['Еду в Барнаул', 'Всегда завидовал', 'завидовать', 'завидую', 'Barnaul'])
+    assert.doesNotMatch(withText(s).join(), /Завидово Барн/, s);
+});
+
+test('политика: падежи ловятся, «своя машина» нет', () => {
+  for (const s of ['Путину?', 'госдума?', 'Кремлёвская?', 'Кремля', 'Зеленский', 'на сво'])
+    assert.match(errs({ text: s }).join(), /Политика/, s);
+  for (const s of ['своя машина', 'свой гараж'])
+    assert.doesNotMatch(withText(s).join(), /Политика/, s);
+});
+
+test('реклама: erid только целым словом', () => {
+  for (const s of ['erid: 2Vtzq', 'реклама'])
+    assert.match(errs({ text: s }).join(), /Реклама/, s);
+  for (const s of ['Meridian', 'Sheridan'])
+    assert.doesNotMatch(withText(s).join(), /Реклама/, s);
+});
+
+test('ссылки: короткие, .рф, новые зоны ловятся; сокращения и числа нет', () => {
+  for (const s of ['bit.ly/x', 'vk.cc/x', 'youtu.be/x', 'telegra.ph/abc', 'Mercedes-Benz.de', 'сайт.рф', 't.me/x'])
+    assert.match(errs({ text: s }).join(), /ссылок/, s);
+  for (const s of ['т.е.', 'и т.д.', '7.5', '1.6 или 2.0', 'Т.О.', '1.5 млн руб.', 'Lada.Vesta'])
+    assert.doesNotMatch(withText(s).join(), /ссылок/, s);
+});
+
+test('вопрос в конце: подпись Wikimedia в конце не мешает', () => {
+  const credit = 'Фото: A / Wikimedia Commons / CC BY-SA 4.0';
+  const p = { ...good, text: 'Что скажете?\n\n' + credit, photo: { kind: 'stock', url: 'https://upload.wikimedia.org/x.jpg', credit } };
+  assert.doesNotMatch(checkPost(p, { config }).warnings.join(), /нет вопроса/);
+  assert.match(checkPost({ ...p, text: 'Утверждение.\n\n' + credit }, { config }).warnings.join(), /нет вопроса/);
+});
+
+test('день: невозможная дата — ошибка, не исключение', () => {
+  assert.deepEqual(checkDay({ date: '2026-13-45', posts: [] }, { config }).errors, ['Неверная дата 2026-13-45']);
+});

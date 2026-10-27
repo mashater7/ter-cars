@@ -7,8 +7,8 @@ export const STOCK_HOSTS = ['images.unsplash.com', 'images.pexels.com', 'upload.
 export const MAX_LEN = 500;
 
 // Завидово Барн в постах машин — никогда. \b в JS не понимает кириллицу, поэтому границы слова вручную
-const BARN = [/zavidovobarn/iu, /завидово/iu, /(^|[^а-яё])барн([^а-яё]|$)/iu];
-const LINK = /https?:\/\/|www\.|(^|[^a-z0-9@-])[a-z0-9-]+\.(ru|com|net|org|io|me|su|by|kz|рф)([^a-z0-9]|$)/iu;
+const BARN = [/zavidovo/iu, /(^|[^a-z])barn([^a-z]|$)/iu, /завидов[оеау]([^а-яё]|$)/iu, /(^|[^а-яё])барн(а|у|ом|е)?([^а-яё]|$)/iu];
+const LINK = /https?:\/\/|www\.|(^|[^a-zа-яё0-9@-])[a-zа-яё0-9-]+\.(ru|com|net|org|io|me|su|by|kz|ly|cc|be|de|ph|ua|tv|info|app|рф)([^a-z0-9]|$)/iu;
 
 export const normalize = t => String(t || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -68,7 +68,8 @@ export function checkPost(post, { config, history = [] }) {
     if (similarity(h.text, t) > 0.6) { errors.push(`Слишком похож на пост ${h.id}`); break; }
   }
   if (t.length > 300) warnings.push(`Длинновато: ${t.length} знаков, лучше до 300`);
-  if (t && !/\?[^\p{L}\p{N}]*$/u.test(t)) warnings.push('В конце нет вопроса');
+  const body = ph.credit && t.endsWith(ph.credit) ? t.slice(0, -ph.credit.length).trim() : t;
+  if (t && !/\?[^\p{L}\p{N}]*$/u.test(body)) warnings.push('В конце нет вопроса');
   if (post.rubric === 'новости' && !post.source) warnings.push('У новости нет источника для проверки');
   return { errors, warnings };
 }
@@ -90,6 +91,7 @@ export function checkDay(day, { config, history = [] }) {
   const errors = [], warnings = [];
   const date = String(day.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { errors: ['Нет даты дня (ГГГГ-ММ-ДД)'], warnings };
+  if (new Date(date + 'T00:00:00Z').toString() === 'Invalid Date' || new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date) return { errors: [`Неверная дата ${date}`], warnings };
   const posts = day.posts || [];
   const max = perDayFor(date, config);
   if (posts.length > max) errors.push(`${date}: ${posts.length} постов, можно не больше ${max}`);
