@@ -1,5 +1,10 @@
+import csv
 from datetime import datetime, timezone
+from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from api import autopost
 
@@ -40,6 +45,60 @@ class DueTests(unittest.TestCase):
         ]
 
         self.assertEqual([(rows[0], False), (rows[1], True)], autopost.due(rows, now))
+
+
+class PublicationSafetyTests(unittest.TestCase):
+    def ready_row(self):
+        return {
+            "id": "ready",
+            "datetime_msk": "2026-10-30 08:00",
+            "text": "Ready post",
+            "image_url": "",
+            "status": "",
+        }
+
+    def test_main_requires_true_autopublish_flag_before_network_or_queue_write(self):
+        row = self.ready_row()
+        for value in ("", "false"):
+            with self.subTest(autopublish_enabled=value), \
+                    patch.object(autopost, "read_queue", return_value=[row]), \
+                    patch.object(autopost, "due", return_value=[(row, False)]), \
+                    patch.object(autopost, "setting", side_effect=lambda name: value if name == "AUTOPUBLISH_ENABLED" else "token"), \
+                    patch.object(autopost, "call") as call, \
+                    patch.object(autopost, "write_queue") as write_queue, \
+                    patch.object(sys, "argv", ["autopost.py"]):
+                with self.assertRaisesRegex(SystemExit, "AUTOPUBLISH_ENABLED"):
+                    autopost.main()
+
+                call.assert_not_called()
+                write_queue.assert_not_called()
+
+    def test_check_account_rejects_configured_account_other_than_ter_cars_before_api_call(self):
+        with patch.object(autopost, "setting", return_value="another_account"), \
+                patch.object(autopost, "call", return_value={"username": "another_account"}) as call:
+            with self.assertRaises(SystemExit):
+                autopost.check_account("token")
+
+            call.assert_not_called()
+
+    def test_main_persists_stale_status_when_enabled_but_token_is_missing(self):
+        row = self.ready_row()
+        with TemporaryDirectory() as directory:
+            queue = Path(directory) / "queue.csv"
+            with patch.object(autopost, "QUEUE", queue):
+                autopost.write_queue([])
+                with patch.object(autopost, "read_queue", return_value=[row]), \
+                        patch.object(autopost, "due", return_value=[(row, True)]), \
+                        patch.object(autopost, "setting", side_effect=lambda name: "true" if name == "AUTOPUBLISH_ENABLED" else ""), \
+                        patch.object(autopost, "call") as call, \
+                        patch.object(sys, "argv", ["autopost.py"]):
+                    with self.assertRaisesRegex(SystemExit, "ACCESS_TOKEN"):
+                        autopost.main()
+
+                with queue.open(encoding="utf-8-sig", newline="") as file:
+                    saved = list(csv.DictReader(file, delimiter=";"))
+                self.assertEqual("skip:опоздал больше чем на 6 часов", saved[0]["status"])
+                call.assert_not_called()
 
 
 if __name__ == "__main__":

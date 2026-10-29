@@ -29,6 +29,7 @@ GRAPH = "https://graph.threads.net/v1.0"
 MSK = timezone(timedelta(hours=3))  # в Москве нет перехода на летнее время
 STALE_AFTER = timedelta(hours=6)    # пропущенный больше чем на 6 часов пост не публикуем задним числом
 FORBIDDEN = {"zavidovobarn"}
+EXPECTED_USERNAME = "ter_cars"
 FIELDS = ["id", "datetime_msk", "text", "image_url", "status"]
 
 
@@ -80,10 +81,8 @@ def due(rows, now):
 
 def check_account(token):
     expected = setting("THREADS_USERNAME").lstrip("@").lower()
-    if not expected:
-        sys.exit("Не задан THREADS_USERNAME — не знаю, в какой аккаунт можно постить. Остановлено.")
-    if expected in FORBIDDEN:
-        sys.exit(f"THREADS_USERNAME={expected}: в этот аккаунт постить запрещено. Остановлено.")
+    if expected != EXPECTED_USERNAME:
+        sys.exit(f"THREADS_USERNAME должен быть @{EXPECTED_USERNAME}. Остановлено.")
     me = call("GET", "/me", {"fields": "username", "access_token": token})
     actual = me.get("username", "").lower()
     if actual != expected or actual in FORBIDDEN:
@@ -110,6 +109,8 @@ def main():
     if not todo:
         print(f"{now:%Y-%m-%d %H:%M} МСК: постов к публикации нет.")
         return
+    if not dry and setting("AUTOPUBLISH_ENABLED") != "true":
+        sys.exit("AUTOPUBLISH_ENABLED=true не задан. Остановлено.")
     for r, stale in todo:
         if len(r["text"]) > 500:
             r["status"] = f"error:текст длиннее 500 символов ({len(r['text'])})"
@@ -122,6 +123,8 @@ def main():
         return
     token = setting("ACCESS_TOKEN")
     if not token:
+        if any(r["status"] for r, _ in todo):
+            write_queue(rows)
         sys.exit("Нет ACCESS_TOKEN. Остановлено.")
     if ready:
         user = check_account(token)
