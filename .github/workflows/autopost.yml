@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: python api/autopost.py --dry-run
 
   publish:
@@ -33,7 +33,7 @@ jobs:
       ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
       AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Load latest publication queue
         run: |
           git fetch origin "$GITHUB_REF"
@@ -153,7 +153,7 @@ jobs:
           PY
       - name: Preserve queue for recovery
         if: failure() && steps.persist.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: threads-queue-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/threads-queue-recovery.csv
@@ -169,7 +169,7 @@ jobs:
       group: threads-autopost-refresh-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Refresh token and update repository secret
         env:
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}

@@ -124,6 +124,18 @@ class PublicationSafetyTests(unittest.TestCase):
 
 
 class WorkflowQueuePersistenceTests(unittest.TestCase):
+    def test_workflow_uses_node24_compatible_first_party_actions(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/autopost.yml"
+        references = [line.split("uses:", 1)[1].strip()
+                      for line in workflow.read_text(encoding="utf-8").splitlines()
+                      if "uses: actions/" in line]
+
+        self.assertEqual(["actions/checkout@v7.0.1", "actions/checkout@v7.0.1",
+                          "actions/upload-artifact@v7.0.2", "actions/checkout@v7.0.1"],
+                         references)
+        self.assertNotIn("actions/checkout@v4", references)
+        self.assertNotIn("actions/upload-artifact@v4", references)
+
     def test_waiting_run_loads_status_committed_after_its_event_before_publication(self):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/autopost.yml"
         publish = workflow.read_text(encoding="utf-8").split("  publish:\n", 1)[1].split("  refresh:\n", 1)[0]
