@@ -22,6 +22,9 @@ jobs:
   publish:
     if: github.event_name == 'schedule' && github.event.schedule == '7,22,37,52 * * * *' && vars.AUTOPUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     concurrency:
       group: threads-autopost-publish-${{ github.ref }}
       cancel-in-progress: false
@@ -31,18 +34,107 @@ jobs:
       AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
     steps:
       - uses: actions/checkout@v4
+      - name: Block publication after unresolved queue persistence failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT_RUN: ${{ github.run_id }}
+          CURRENT_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def api(path):
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", "--paginate", "--slurp", path], text=True))
+
+          repo = os.environ["GH_REPO"]
+          for page in api(f"repos/{repo}/actions/workflows/autopost.yml/runs?event=schedule&per_page=100"):
+              for run in page["workflow_runs"]:
+                  if run["conclusion"] == "success":
+                      continue
+                  base = f"repos/{repo}/actions/runs/{run['id']}"
+                  if str(run["id"]) == os.environ["CURRENT_RUN"]:
+                      paths = [base + f"/attempts/{attempt}/jobs?per_page=100"
+                               for attempt in range(1, int(os.environ["CURRENT_ATTEMPT"]))]
+                  else:
+                      paths = [base + f"/attempts/{attempt}/jobs?per_page=100"
+                               for attempt in range(1, run.get("run_attempt", 1) + 1)]
+                  pages = [page for path in paths for page in api(path)]
+                  for jobs_page in pages:
+                      for job in jobs_page["jobs"]:
+                          if job["name"] != "publish":
+                              continue
+                          steps = {step["name"]: step.get("conclusion") for step in job.get("steps", [])}
+                          published = steps.get("Publish due posts")
+                          persisted = steps.get("Commit queue statuses")
+                          if published and published != "skipped" and persisted != "success":
+                              sys.exit("Publication blocked: recover queue statuses from " + run["html_url"]
+                                       + "; merge its recovery queue statuses, then delete the resolved failed run before publishing again.")
+          PY
       - name: Publish due posts
         run: python api/autopost.py
       - name: Commit queue statuses
+        id: persist
         if: always()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- api/queue.csv
-          if ! git diff --cached --quiet -- api/queue.csv; then
-            git commit -m "chore: update Threads queue statuses" -- api/queue.csv
-            git push
-          fi
+          python - <<'PY'
+          import csv
+          import io
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+
+          def git(*args, check=True):
+              return subprocess.run(["git", *args], check=check, capture_output=True, text=True, encoding="utf-8")
+
+          queue = Path("api/queue.csv")
+          def read(text):
+              return list(csv.DictReader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
+
+          before = {row["id"]: row["status"] for row in read(git("show", "HEAD:api/queue.csv").stdout)}
+          rows = read(queue.read_text(encoding="utf-8-sig"))
+          changes = {row["id"]: row["status"] for row in rows
+                     if row["status"] and row["status"] != before.get(row["id"])}
+          if not changes:
+              sys.exit(0)
+          shutil.copyfile(queue, Path(os.environ["RUNNER_TEMP"]) / "threads-queue-recovery.csv")
+          git("config", "user.name", "github-actions[bot]")
+          git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
+          branch = os.environ["GITHUB_REF_NAME"]
+          for attempt in range(5):
+              git("fetch", "origin", branch)
+              git("reset", "--hard", "FETCH_HEAD")
+              latest = read(queue.read_text(encoding="utf-8-sig"))
+              for row in latest:
+                  if row["id"] in changes:
+                      row["status"] = changes[row["id"]]
+              with queue.open("w", encoding="utf-8-sig", newline="") as file:
+                  writer = csv.DictWriter(file, fieldnames=list(latest[0]), delimiter=";")
+                  writer.writeheader()
+                  writer.writerows(latest)
+              git("add", "--", "api/queue.csv")
+              if git("diff", "--cached", "--quiet", "--", "api/queue.csv", check=False).returncode == 0:
+                  sys.exit(0)
+              git("commit", "-m", "chore: update Threads queue statuses", "--", "api/queue.csv")
+              if git("push", "origin", "HEAD:refs/heads/" + branch, check=False).returncode == 0:
+                  sys.exit(0)
+              print(f"Queue status push rejected; reconciling latest branch (attempt {attempt + 1}/5).")
+          sys.exit("Queue statuses could not be pushed. Recover the queue artifact before further publication.")
+          PY
+      - name: Preserve queue for recovery
+        if: failure() && steps.persist.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: threads-queue-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/threads-queue-recovery.csv
+          retention-days: 90
+
 
   refresh:
     if: github.event_name == 'schedule' && github.event.schedule == '0 6 1,15 * *' && vars.AUTOPUBLISH_ENABLED == 'true'
