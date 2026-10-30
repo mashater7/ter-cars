@@ -1,0 +1,98 @@
+name: Threads autopost
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+    - cron: '0 6 1,15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dry_run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: python api/autopost.py --dry-run
+
+  publish:
+    if: github.event_name == 'schedule' && github.event.schedule == '7,22,37,52 * * * *' && vars.AUTOPUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: threads-autopost-publish-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      THREADS_USERNAME: ${{ secrets.THREADS_USERNAME }}
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish due posts
+        run: python api/autopost.py
+      - name: Commit queue statuses
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- api/queue.csv
+          if ! git diff --cached --quiet -- api/queue.csv; then
+            git commit -m "chore: update Threads queue statuses" -- api/queue.csv
+            git push
+          fi
+
+  refresh:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 6 1,15 * *' && vars.AUTOPUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: threads-autopost-refresh-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh token and update repository secret
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get("ACCESS_TOKEN", "").strip()
+          if not token or not os.environ.get("GH_TOKEN"):
+              sys.exit("ACCESS_TOKEN and GH_PAT must be configured.")
+          query = urllib.parse.urlencode({
+              "grant_type": "th_refresh_token",
+              "access_token": token,
+          })
+          try:
+              with urllib.request.urlopen(
+                  "https://graph.threads.net/refresh_access_token?" + query,
+                  timeout=60,
+              ) as response:
+                  refreshed = json.load(response).get("access_token")
+          except urllib.error.HTTPError as error:
+              sys.exit(f"Token refresh failed: HTTP {error.code}.")
+          except (urllib.error.URLError, ValueError):
+              sys.exit("Token refresh failed; no repository secret was changed.")
+          if not isinstance(refreshed, str) or not refreshed or any(c in refreshed for c in "\r\n"):
+              sys.exit("Token refresh did not return a valid access token.")
+          print("::add-mask::" + refreshed, flush=True)
+          subprocess.run(
+              ["gh", "secret", "set", "ACCESS_TOKEN", "--repo", os.environ["GH_REPO"]],
+              input=refreshed,
+              text=True,
+              check=True,
+          )
+          PY

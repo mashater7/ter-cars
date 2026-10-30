@@ -1,5 +1,7 @@
+from contextlib import redirect_stdout
 import csv
-from datetime import datetime, timezone
+from io import StringIO
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -56,6 +58,21 @@ class PublicationSafetyTests(unittest.TestCase):
             "image_url": "",
             "status": "",
         }
+
+    def test_dry_run_shows_due_post_without_api_calls_or_queue_writes(self):
+        row = self.ready_row()
+        row["datetime_msk"] = (datetime.now(autopost.MSK) - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M")
+        output = StringIO()
+        with patch.object(autopost, "read_queue", return_value=[row]), \
+                patch.object(autopost, "call") as call, \
+                patch.object(autopost, "write_queue") as write_queue, \
+                patch.object(sys, "argv", ["autopost.py", "--dry-run"]), \
+                redirect_stdout(output):
+            autopost.main()
+
+        self.assertIn("[К ПУБЛИКАЦИИ]", output.getvalue())
+        call.assert_not_called()
+        write_queue.assert_not_called()
 
     def test_main_requires_true_autopublish_flag_before_network_or_queue_write(self):
         row = self.ready_row()
