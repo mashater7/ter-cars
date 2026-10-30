@@ -74,8 +74,22 @@ jobs:
                           if "Publish due posts" in steps and published != "skipped" and (
                               published != "success" or persisted != "success"
                           ):
-                              sys.exit("Publication blocked: recover queue statuses from " + run["html_url"]
-                                       + "; merge its recovery queue statuses, then delete the resolved failed run before publishing again.")
+                              if published != "success":
+                                  recovery = (
+                                      "Publication outcome is uncertain. First inspect Threads to determine which posts "
+                                      "actually published before editing the queue or resolving this run; a recovery "
+                                      "artifact may not exist. Record the verified publication statuses in the queue. "
+                                  )
+                              else:
+                                  recovery = (
+                                      "Publication completed but status persistence failed. Merge statuses from the "
+                                      "recovery artifact into the latest queue; restore any missing or renamed IDs "
+                                      "with their recorded publication statuses. If the artifact is unavailable, "
+                                      "inspect Threads and reconstruct the statuses before resolving this run. "
+                                  )
+                              sys.exit("Publication blocked: " + run["html_url"] + ". " + recovery
+                                       + "Only after verified statuses are committed, delete the resolved failed run "
+                                       "before publishing again.")
           PY
       - name: Publish due posts
         run: python api/autopost.py

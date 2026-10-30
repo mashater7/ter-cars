@@ -147,8 +147,17 @@ class WorkflowQueuePersistenceTests(unittest.TestCase):
                 with patch.dict(os.environ, {"GH_REPO": "test/repo", "CURRENT_RUN": current_run, "CURRENT_ATTEMPT": "2"}), \
                         patch.object(subprocess, "check_output", side_effect=responses):
                     if blocked:
-                        with self.assertRaisesRegex(SystemExit, "Publication blocked"):
+                        with self.assertRaisesRegex(SystemExit, "Publication blocked") as failure:
                             exec(compile(code, "workflow-guard", "exec"), {})
+                        message = str(failure.exception)
+                        if publication != "success":
+                            self.assertIn("First inspect Threads", message)
+                            self.assertIn("artifact may not exist", message)
+                            self.assertIn("before editing the queue or resolving this run", message)
+                        else:
+                            self.assertIn("status persistence failed", message)
+                            self.assertIn("recovery artifact", message)
+                            self.assertIn("restore any missing or renamed IDs", message)
                     else:
                         exec(compile(code, "workflow-guard", "exec"), {})
 
