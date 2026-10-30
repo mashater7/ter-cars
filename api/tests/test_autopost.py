@@ -124,6 +124,67 @@ class PublicationSafetyTests(unittest.TestCase):
 
 
 class WorkflowQueuePersistenceTests(unittest.TestCase):
+    def test_waiting_run_loads_status_committed_after_its_event_before_publication(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/autopost.yml"
+        publish = workflow.read_text(encoding="utf-8").split("  publish:\n", 1)[1].split("  refresh:\n", 1)[0]
+        block = publish.split("      - name: Load latest publication queue\n", 1)[1]
+        shell = textwrap.dedent(block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
+        self.assertLess(publish.index("Load latest publication queue"),
+                        publish.index("Block publication after unresolved queue persistence failure"))
+        self.assertLess(publish.index("Load latest publication queue"), publish.index("Publish due posts"))
+        bash = shutil.which("bash") or "C:/Program Files/Git/bin/bash.exe"
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote, editor, runner = (root / name for name in ("remote.git", "editor", "runner"))
+
+            def git(cwd, *args):
+                return subprocess.run(["git", "-C", str(cwd), *args], check=True,
+                                      capture_output=True, text=True, timeout=30).stdout.strip()
+
+            subprocess.run(["git", "init", "--bare", "--initial-branch=main", str(remote)],
+                           check=True, capture_output=True, timeout=30)
+            subprocess.run(["git", "clone", str(remote), str(editor)],
+                           check=True, capture_output=True, timeout=30)
+            git(editor, "config", "user.name", "Test")
+            git(editor, "config", "user.email", "test@example.invalid")
+            (editor / "api").mkdir()
+            row = {"id": "one", "datetime_msk": "2026-10-30 08:00",
+                   "text": "Original", "image_url": "", "status": ""}
+            with patch.object(autopost, "QUEUE", editor / "api/queue.csv"):
+                autopost.write_queue([row])
+            git(editor, "add", ".")
+            git(editor, "commit", "-m", "Event queue")
+            event_commit = git(editor, "rev-parse", "HEAD")
+            git(editor, "push", "origin", "main")
+            subprocess.run(["git", "clone", str(remote), str(runner)],
+                           check=True, capture_output=True, timeout=30)
+            git(runner, "checkout", "--detach", event_commit)
+            row["status"] = "posted:123"
+            with patch.object(autopost, "QUEUE", editor / "api/queue.csv"):
+                autopost.write_queue([row])
+            git(editor, "add", ".")
+            git(editor, "commit", "-m", "Earlier run persisted publication")
+            git(editor, "push", "origin", "main")
+            latest_commit = git(editor, "rev-parse", "HEAD")
+            self.assertNotEqual(event_commit, latest_commit)
+            result = subprocess.run([bash, "-eo", "pipefail", "-c", shell], cwd=runner,
+                                    env={**os.environ, "GITHUB_REF": "refs/heads/main"},
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertEqual(latest_commit, git(runner, "rev-parse", "HEAD"))
+            with patch.object(autopost, "QUEUE", runner / "api/queue.csv"):
+                loaded = autopost.read_queue()
+            self.assertEqual("posted:123", loaded[0]["status"])
+            self.assertEqual([], autopost.due(loaded, datetime(2026, 10, 30, 9, 0, tzinfo=autopost.MSK)))
+            # Persistence compares against this same refreshed HEAD, so the prior
+            # run's status is not mistaken for a change made by this run.
+            self.assertEqual("", git(runner, "diff", "HEAD", "--", "api/queue.csv"))
+            git(runner, "remote", "set-url", "origin", str(root / "missing.git"))
+            failed = subprocess.run([bash, "-eo", "pipefail", "-c", shell], cwd=runner,
+                                    env={**os.environ, "GITHUB_REF": "refs/heads/main"},
+                                    capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(0, failed.returncode)
+
     def test_unresolved_publication_blocks_next_run_but_guard_only_failure_does_not(self):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/autopost.yml"
         block = workflow.read_text(encoding="utf-8").split(

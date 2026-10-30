@@ -34,6 +34,10 @@ jobs:
       AUTOPUBLISH_ENABLED: ${{ vars.AUTOPUBLISH_ENABLED }}
     steps:
       - uses: actions/checkout@v4
+      - name: Load latest publication queue
+        run: |
+          git fetch origin "$GITHUB_REF"
+          git reset --hard FETCH_HEAD
       - name: Block publication after unresolved queue persistence failure
         env:
           GH_TOKEN: ${{ github.token }}
