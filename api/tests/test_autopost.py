@@ -133,6 +133,9 @@ class WorkflowQueuePersistenceTests(unittest.TestCase):
         for publication, persistence, blocked, current_run in (("success", "failure", True, "11"),
                                                                ("success", "failure", True, "10"),
                                                    ("cancelled", "skipped", True, "11"),
+                                                   ("cancelled", "success", True, "11"),
+                                                   ("failure", "success", True, "11"),
+                                                   (None, "success", True, "11"),
                                                    ("skipped", "skipped", False, "11"),
                                                    ("success", "success", False, "11")):
             with self.subTest(publication=publication, persistence=persistence):
@@ -155,7 +158,10 @@ class WorkflowQueuePersistenceTests(unittest.TestCase):
     def test_exhausted_push_retries_fail_with_queue_available_for_recovery(self):
         self.exercise_status_push(reject_forever=True)
 
-    def exercise_status_push(self, reject_forever):
+    def test_removed_or_renamed_published_id_fails_with_recovery_snapshot(self):
+        self.exercise_status_push(reject_forever=False, rename_published=True)
+
+    def exercise_status_push(self, reject_forever, rename_published=False):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/autopost.yml"
         block = workflow.read_text(encoding="utf-8").split("      - name: Commit queue statuses\n", 1)[1]
         shell = textwrap.dedent(block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
@@ -191,6 +197,8 @@ class WorkflowQueuePersistenceTests(unittest.TestCase):
             with patch.object(autopost, "QUEUE", queue):
                 rows = autopost.read_queue()
                 rows[0]["text"] = "Edited by owner"
+                if rename_published:
+                    rows[0]["id"] = "renamed"
                 rows.append({"id": "two", "datetime_msk": "2026-10-31 08:00",
                              "text": "New post", "image_url": "", "status": ""})
                 autopost.write_queue(rows)
@@ -208,6 +216,12 @@ class WorkflowQueuePersistenceTests(unittest.TestCase):
             result = subprocess.run([bash, "-eo", "pipefail", "-c", shell], cwd=runner,
                                     env={**os.environ, "GITHUB_REF_NAME": "main", "RUNNER_TEMP": str(root)},
                                     capture_output=True, text=True, timeout=60)
+            if rename_published:
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Published queue IDs disappeared", result.stderr)
+                with patch.object(autopost, "QUEUE", root / "threads-queue-recovery.csv"):
+                    self.assertEqual("posted:123", autopost.read_queue()[0]["status"])
+                return
             if reject_forever:
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("Recover the queue artifact", result.stderr)

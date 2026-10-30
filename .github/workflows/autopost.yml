@@ -71,7 +71,9 @@ jobs:
                           steps = {step["name"]: step.get("conclusion") for step in job.get("steps", [])}
                           published = steps.get("Publish due posts")
                           persisted = steps.get("Commit queue statuses")
-                          if published and published != "skipped" and persisted != "success":
+                          if "Publish due posts" in steps and published != "skipped" and (
+                              published != "success" or persisted != "success"
+                          ):
                               sys.exit("Publication blocked: recover queue statuses from " + run["html_url"]
                                        + "; merge its recovery queue statuses, then delete the resolved failed run before publishing again.")
           PY
@@ -111,6 +113,10 @@ jobs:
               git("fetch", "origin", branch)
               git("reset", "--hard", "FETCH_HEAD")
               latest = read(queue.read_text(encoding="utf-8-sig"))
+              missing = set(changes) - {row["id"] for row in latest}
+              if missing:
+                  sys.exit("Published queue IDs disappeared from the latest queue: "
+                           + ", ".join(sorted(missing)) + ". Recover the queue artifact before publication.")
               for row in latest:
                   if row["id"] in changes:
                       row["status"] = changes[row["id"]]
