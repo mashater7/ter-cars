@@ -36,6 +36,11 @@ export function perDayFor(date, config) {
   for (const r of config.perDay) if (date >= r.from) n = r.n;
   return n;
 }
+export function slotsFor(date, config) {
+  let times = [];
+  for (const r of config.slots) if (date >= r.from) times = r.times;
+  return times;
+}
 export function inQuiet(min, config) {
   return config.quiet.some(r => { const [a, b] = r.split('-').map(toMin); return min >= a && min < b; });
 }
@@ -94,8 +99,16 @@ export function checkDay(day, { config, history = [] }) {
   if (new Date(date + 'T00:00:00Z').toString() === 'Invalid Date' || new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date) return { errors: [`Неверная дата ${date}`], warnings };
   const posts = day.posts || [];
   const max = perDayFor(date, config);
-  if (posts.length > max) errors.push(`${date}: ${posts.length} постов, можно не больше ${max}`);
-  posts.forEach((p, i) => { if (p.id !== `t-${date}-${i + 1}`) errors.push(`${date}: у поста ${i + 1} id должен быть t-${date}-${i + 1}`); });
+  const slots = slotsFor(date, config);
+  if (posts.length !== max) errors.push(`${date}: число постов должно быть ${max} (сейчас ${posts.length})`);
+  if (slots.length !== max) errors.push(`${date}: настроено ${slots.length} слотов, нужно ${max}`);
+  posts.forEach((p, i) => {
+    if (p.id !== `t-${date}-${i + 1}`) errors.push(`${date}: у поста ${i + 1} id должен быть t-${date}-${i + 1}`);
+    // Enforce the new exact slot contract from its effective date. Older drafts
+    // can contain manually adjusted times and must remain historically valid.
+    const strictSlotsFrom = config.slots.at(-1)?.from;
+    if (date >= strictSlotsFrom && slots[i] && p.time !== slots[i]) errors.push(`${p.id}: время должно быть ${slots[i]} по порядку`);
+  });
   const times = posts.map(p => toMin(p.time)).filter(x => x != null).sort((a, b) => a - b);
   for (let i = 1; i < times.length; i++) {
     if (times[i] - times[i - 1] < config.minGapMin) { errors.push(`${date}: между постами меньше ${config.minGapMin} мин`); break; }

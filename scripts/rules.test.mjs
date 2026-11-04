@@ -2,13 +2,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { checkPost, normalize } from './rules.mjs';
+import { checkPost, normalize, checkDay, similarity, perDayFor, toMin, inQuiet } from './rules.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const good = { id: 't-2026-10-28-1', time: '08:00', rubric: 'ремонт', photo: { kind: 'none' },
   text: 'Поменял масло в коробке на 90 тысячах. Слил чёрное, с запахом гари. А вы когда меняли масло в автомате?' };
 const errs = (patch, history = []) => checkPost({ ...good, ...patch }, { config, history }).errors;
 const warns = patch => checkPost({ ...good, ...patch }, { config }).warnings;
+test('с 5 ноября: 20 дневных черновиков и 20 слотов с безопасным интервалом', () => {
+  assert.equal(perDayFor('2026-11-04', config), 4);
+  assert.equal(perDayFor('2026-11-05', config), 20);
+  const slots = config.slots.find(x => x.from === '2026-11-05')?.times || [];
+  assert.equal(slots.length, 20);
+  const minutes = slots.map(toMin);
+  assert.deepEqual(minutes, [...minutes].sort((a, b) => a - b));
+  assert.ok(minutes.every(m => m != null && !inQuiet(m, config)), 'слоты не попадают в тихое окно');
+  assert.ok(minutes.slice(1).every((m, i) => m - minutes[i] >= 50), 'между слотами не меньше 50 минут');
+  assert.equal(config.minGapMin, 45);
+  assert.deepEqual(config.jitterMin, [1, 6]);
+});
 
 test('хороший пост проходит без ошибок и советов', () => {
   assert.deepEqual(checkPost(good, { config }), { errors: [], warnings: [] });
@@ -58,7 +70,6 @@ test('normalize: регистр, ё, знаки', () => {
   assert.equal(normalize('Ёлка,  МАСЛО!!! 5w-30'), 'елка масло 5w 30');
 });
 
-import { checkDay, similarity, perDayFor, toMin, inQuiet } from './rules.mjs';
 
 test('время: формат и окно тишины 09:50–10:20', () => {
   assert.equal(toMin('8:00'), null);
@@ -87,9 +98,11 @@ test('повторы: точный (без учёта регистра и зна
   assert.deepEqual(errs({}, [{ id: good.id, text: good.text }]), [], 'сам с собой не сравнивается');
 });
 
-test('perDayFor: 2 до 03.11, 4 с 03.11', () => {
+test('perDayFor: 2 до 03.11, 4 с 03.11, 20 с 05.11', () => {
   assert.equal(perDayFor('2026-11-02', config), 2);
   assert.equal(perDayFor('2026-11-03', config), 4);
+  assert.equal(perDayFor('2026-11-04', config), 4);
+  assert.equal(perDayFor('2026-11-05', config), 20);
 });
 
 const texts = [
@@ -102,17 +115,29 @@ const post = (date, i, time, rubric = 'провокация') => ({ id: `t-${dat
 
 test('день: не больше perDay постов', () => {
   const d = { date: '2026-10-28', posts: [post('2026-10-28', 1, '08:00'), post('2026-10-28', 2, '10:30'), post('2026-10-28', 3, '13:00')] };
-  assert.match(checkDay(d, { config }).errors.join(), /3 постов, можно не больше 2/);
-  const d4 = { date: '2026-11-05', posts: [post('2026-11-05', 1, '08:00'), post('2026-11-05', 2, '10:30'), post('2026-11-05', 3, '13:00'), post('2026-11-05', 4, '20:30')] };
+  assert.match(checkDay(d, { config }).errors.join(), /число постов должно быть 2 \(сейчас 3\)/);
+  const d4 = { date: '2026-11-03', posts: [post('2026-11-03', 1, '08:00'), post('2026-11-03', 2, '10:30'), post('2026-11-03', 3, '13:00'), post('2026-11-03', 4, '20:30')] };
   assert.deepEqual(checkDay(d4, { config }).errors, []);
 });
 
-test('день: интервал 90 минут и порядок id', () => {
-  const gap = { date: '2026-11-05', posts: [post('2026-11-05', 1, '08:00'), post('2026-11-05', 2, '09:00')] };
-  assert.match(checkDay(gap, { config }).errors.join(), /меньше 90 мин/);
+test('день: интервал 45 минут и порядок id', () => {
+  const gap = { date: '2026-11-05', posts: [post('2026-11-05', 1, '08:00'), post('2026-11-05', 2, '08:30')] };
+  assert.match(checkDay(gap, { config }).errors.join(), /меньше 45 мин/);
   const ids = { date: '2026-11-05', posts: [{ ...post('2026-11-05', 1, '08:00'), id: 't-2026-11-05-7' }] };
   assert.match(checkDay(ids, { config }).errors.join(), /id должен быть t-2026-11-05-1/);
   assert.deepEqual(checkDay({ date: 'завтра', posts: [] }, { config }).errors, ['Нет даты дня (ГГГГ-ММ-ДД)']);
+});
+
+test('день: требует все варианты и только времена из слотов', () => {
+  const shortDay = { date: '2026-11-05', posts: [post('2026-11-05', 1, '06:00')] };
+  assert.match(checkDay(shortDay, { config }).errors.join(), /число постов должно быть 20 \(сейчас 1\)/);
+
+  const oneSlotConfig = { ...config,
+    perDay: [{ from: '2026-11-05', n: 1 }],
+    slots: [{ from: '2026-11-05', times: ['08:30'] }],
+  };
+  const offSlot = { date: '2026-11-05', posts: [post('2026-11-05', 1, '08:00')] };
+  assert.match(checkDay(offSlot, { config: oneSlotConfig }).errors.join(), /время должно быть 08:30 по порядку/);
 });
 
 test('день: совет про доли рубрик за 7 дней', () => {

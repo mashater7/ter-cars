@@ -1,7 +1,7 @@
 // node --test scripts/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,7 +10,17 @@ import { loadDays, checkAll, loadConfig } from './check-posts.mjs';
 
 const CLI = fileURLToPath(new URL('./check-posts.mjs', import.meta.url));
 const CONFIG = fileURLToPath(new URL('../config.json', import.meta.url));
-const day = (date, text) => ({ date, posts: [{ id: `t-${date}-1`, time: '08:00', rubric: 'ремонт', photo: { kind: 'none' }, text }] });
+const settings = JSON.parse(readFileSync(CONFIG, 'utf8'));
+const rowFor = (rows, date) => rows.filter(row => date >= row.from).at(-1);
+const day = (date, text) => {
+  const count = rowFor(settings.perDay, date)?.n || 0;
+  const times = rowFor(settings.slots, date)?.times || [];
+  const rest = Array.from({ length: Math.max(0, count - 1) }, (_, i) =>
+    `День ${date}, вариант ${i + 2}: какая машина вам запомнилась? Расскажете?`);
+  return { date, posts: Array.from({ length: count }, (_, i) => ({
+    id: `t-${date}-${i + 1}`, time: times[i], rubric: 'ремонт', photo: { kind: 'none' }, text: i ? rest[i - 1] : text,
+  })) };
+};
 
 function repo(days) {
   const dir = mkdtempSync(join(tmpdir(), 'ter-'));
