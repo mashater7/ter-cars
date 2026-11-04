@@ -97,10 +97,10 @@
 - Configure: `/etc/threads-pult.env` and GitHub repository secret `TER_STYLE_KEY`
 - Verify: workflow run summary and repository status
 
-- [ ] Generate a dedicated random style key, store it root-only in `/etc/threads-pult.env`, and set the same value as the repository Actions secret through pipes that do not print it.
-- [ ] Back up each deployed server file before copying; inspect current pult jobs and wait for an idle safe restart window.
-- [ ] Deploy modules, restart with the existing safe restart procedure, and confirm health plus `GET` style samples returns exactly four current text-edit pairs.
-- [ ] Exercise invalid/missing key and `POST` access on the live route; confirm both are rejected and no state changes occur.
-- [ ] Run `generate-drafts.yml` with `research_only=true`; confirm cloud runner reads style samples and fresh public research, logs only counts, and creates/changes no drafts.
-- [ ] Run the complete local project tests, `node scripts/check-posts.mjs`, server unit tests, and `git diff --check`.
-- [ ] Review repository and server diffs; commit and push only the source/spec/plan changes to `main`. Verify clean state and successful cloud check.
+- [x] Generate a dedicated random style key, store it root-only in `/etc/threads-pult.env`, and set the same value as the repository Actions secret through pipes that do not print it.
+- [x] Back up each deployed server file before copying; inspect current pult jobs and wait for an idle safe restart window.
+- [x] Deploy modules, restart with the existing safe restart procedure, and confirm health plus `GET` style samples returns exactly four current text-edit pairs.
+- [x] Exercise invalid/missing key and `POST` access on the live route; confirm both are rejected and no state changes occur.
+- [x] Run `generate-drafts.yml` with `research_only=true`; confirm cloud runner reads style samples and fresh public research, logs only counts, and creates/changes no drafts.
+- [x] Run the complete local project tests, `node scripts/check-posts.mjs`, server unit tests, and `git diff --check`.
+- [x] Review repository and server diffs; commit and push only the source/spec/plan changes to `main`. Verify clean state and successful cloud check.
