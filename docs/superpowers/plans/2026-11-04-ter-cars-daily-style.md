@@ -43,12 +43,12 @@
 - `original` uses immutable `post.original_text` where available. For older state only, it falls back to the source draft found by the original date encoded in `t-YYYY-MM-DD-N`; mismatched IDs are discarded.
 - New posts store `original_text` equal to imported `text`; a legacy post stores its current `text` before the first edit. Later edits preserve `original_text`.
 
-- [ ] Copy the currently deployed `ter-state.mjs` and `ter-rules.mjs` into the local `ter-pult/server-src/tools` working copy; copy `ter.mjs` and `server.mjs` there as the exact deployment base for Task 2.
-- [ ] Add state tests: imported text is saved as original; first edit captures the prior text; second edit preserves the first original.
-- [ ] Add sample tests: only `edited` posts with text differences are returned; rescheduled IDs resolve the original date; missing/mismatched originals and edits older than 90 days are omitted; output is limited to 20.
-- [ ] Run the focused tests and confirm they fail because the baseline and sampler do not exist yet.
-- [ ] Implement the smallest state change and `buildStyleSamples` to satisfy those tests.
-- [ ] Run `node --test test/ter-state.test.mjs test/ter-style.test.mjs`; confirm all pass.
+- [x] Copy the currently deployed `ter-state.mjs` and `ter-rules.mjs` into the local `ter-pult/server-src/tools` working copy; copy `ter.mjs` and `server.mjs` there as the exact deployment base for Task 2.
+- [x] Add state tests: imported text is saved as original; first edit captures the prior text; second edit preserves the first original.
+- [x] Add sample tests: only `edited` posts with text differences are returned; rescheduled IDs resolve the original date; missing/mismatched originals and edits older than 90 days are omitted; output is limited to 20.
+- [x] Run the focused tests and confirm they fail because the baseline and sampler do not exist yet.
+- [x] Implement the smallest state change and `buildStyleSamples` to satisfy those tests.
+- [x] Run `node --test test/ter-state.test.mjs test/ter-style.test.mjs`; confirm all pass.
 
 ### Task 2: Expose examples through an isolated read-only route
 
