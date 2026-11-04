@@ -83,4 +83,4 @@
 - [x] Pass the live snapshot to the generator and reject news items whose source URL was not collected in this run.
 - [x] Add a `research_only` workflow-dispatch option for checking the cloud collection without generating drafts.
 - [x] Run parser tests and full project tests; validate the collector against live public pages locally.
-- [ ] Push and run the research-only workflow in GitHub Actions to verify runner access to the live sources.
+- [x] Push and run the research-only workflow in GitHub Actions to verify runner access to the live sources; run `41902055681` succeeded and collected 45 signals from four sources.
