@@ -8,9 +8,10 @@ function validatedItems(payload) {
   return payload.items.map(item => {
     if (!item || !['id', 'rubric', 'original', 'edited', 'editedAt'].every(field => typeof item[field] === 'string' && item[field].trim())
       || item.original === item.edited || !Number.isFinite(Date.parse(item.editedAt))
-      || item.original.length > 10000 || item.edited.length > 10000) throw new Error('invalid');
+      || item.original.length > 500 || item.edited.length > 500
+      || item.id.length > 128 || item.rubric.length > 128 || item.editedAt.length > 64) throw new Error('invalid');
     return Object.fromEntries(['id', 'rubric', 'original', 'edited', 'editedAt'].map(field => [field, item[field]]));
-  });
+  }).sort((a, b) => Date.parse(b.editedAt) - Date.parse(a.editedAt)).slice(0, 20);
 }
 
 export async function collectStyle({ endpoint, key, fetcher = fetch, timeoutMs = 15000 } = {}) {

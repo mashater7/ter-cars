@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, cpSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPrompt, generateDrafts, moscowDate, parseModelJson, validateNewsSources } from './generate-drafts.mjs';
+import { spawnSync } from 'node:child_process';
+import { buildPrompt, containsPrivateStyle, generateDrafts, moscowDate, parseModelJson, validateNewsSources } from './generate-drafts.mjs';
 
 const research = {
   collectedAt: '2026-11-04T12:00:00.000Z', freshnessHours: 72,
@@ -76,16 +77,19 @@ test('generation sends edits in the same CLI prompt and never echoes rejected re
     process.env.TER_STYLE_FILE = join(dir, 'style.json');
     writeFileSync(process.env.TER_RESEARCH_FILE, JSON.stringify({ ...research, collectedAt: new Date().toISOString() }));
     writeFileSync(process.env.TER_STYLE_FILE, JSON.stringify({ status: 'ok', items: [{ id: 'fixture', rubric: 'личное', original: 'SYNTHETIC BEFORE', edited: 'SYNTHETIC AFTER', editedAt: '2026-11-04T12:00:00.000Z' }] }));
-    let calls = 0, capturedCommand, capturedPrompt;
-    assert.throws(() => generateDrafts('2099-11-05', { runner: (command, args) => {
+    let calls = 0, capturedCommand, capturedPrompt, capturedArgs;
+    assert.throws(() => generateDrafts('2099-11-05', { runner: (command, args, options) => {
       calls++;
       capturedCommand = command;
-      capturedPrompt = args[args.indexOf('-p') + 1];
+      capturedPrompt = options.input;
+      capturedArgs = args;
       return { status: 0, stdout: JSON.stringify({ date: '2099-11-05', posts: [{ id: 'LEAK', rubric: 'LEAK', text: 'Draft', time: 'bad', photo: { kind: 'none' } }] }) };
     } }), error => !error.message.includes('LEAK'));
     assert.equal(calls, 1);
     assert.equal(capturedCommand, 'copilot');
     assert.match(capturedPrompt, /SYNTHETIC AFTER/);
+    assert.equal(capturedArgs.includes('-p'), false);
+    assert.equal(capturedArgs.some(arg => arg.includes('SYNTHETIC AFTER')), false);
     assert.throws(() => generateDrafts('2099-11-05', { runner: () => ({ status: 1, stderr: 'LEAK', stdout: 'LEAK' }) }), error => !error.message.includes('LEAK'));
   } finally {
     for (const [key, value] of [['TER_RESEARCH_FILE', previous.research], ['TER_STYLE_FILE', previous.style]]) {
@@ -93,4 +97,40 @@ test('generation sends edits in the same CLI prompt and never echoes rejected re
     }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('otherwise valid model echoes are rejected before writing any persisted field', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ter-echo-test-'));
+  try {
+    mkdirSync(join(dir, 'drafts'));
+    cpSync(new URL('../config.json', import.meta.url), join(dir, 'config.json'));
+    cpSync(new URL('../PROMPT.md', import.meta.url), join(dir, 'PROMPT.md'));
+    cpSync(new URL('../plan', import.meta.url), join(dir, 'plan'), { recursive: true });
+    const original = 'Оставила синий термос в машине у старого моста. У вас бывало?';
+    const edited = 'Забыла зелёный зонтик на парковке около театра. Знакомо?';
+    const day = { date: '2026-10-28', posts: [
+      { id: 't-2026-10-28-1', time: '08:00', rubric: 'жизнь', text: original, photo: { kind: 'none' } },
+      { id: 't-2026-10-28-2', time: '10:30', rubric: 'ремонт', text: 'Скрип тормозов после дождя пропал к вечеру. Кто сталкивался?', photo: { kind: 'none' } },
+    ] };
+    writeFileSync(join(dir, 'research.json'), JSON.stringify({ ...research, collectedAt: new Date().toISOString() }));
+    writeFileSync(join(dir, 'style.json'), JSON.stringify({ status: 'ok', items: [{ id: 'fixture', rubric: 'жизнь', original, edited, editedAt: '2026-11-04T12:00:00Z' }] }));
+    for (const field of ['text', 'why', 'custom']) {
+      const response = structuredClone(day);
+      if (field !== 'text') { response.posts[0].text = 'Планирую поездку по незнакомой трассе зимой. Какие советы?'; response.posts[0][field] = edited.toUpperCase(); }
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+        'import {generateDrafts} from ' + JSON.stringify(new URL('./generate-drafts.mjs', import.meta.url).href) + '; try { generateDrafts("2026-10-28", {runner: () => ({status:0, stdout:process.env.TEST_RESPONSE})}); } catch(e) { console.error(e.message); process.exitCode=1; }'],
+        { encoding: 'utf8', env: { ...process.env, TER_ROOT: dir, TER_RESEARCH_FILE: join(dir, 'research.json'), TER_STYLE_FILE: join(dir, 'style.json'), TEST_RESPONSE: JSON.stringify(response) } });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /приватных примеров/);
+      assert.ok(!result.stderr.includes(original) && !result.stderr.includes(edited));
+      assert.equal(existsSync(join(dir, 'drafts', '2026-10-28.json')), false);
+    }
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('privacy guard catches normalized fragments and permits independent wording', () => {
+  const samples = [{ original: 'Один два три четыре пять шесть семь восемь девять.', edited: 'Отдельная короткая правка' }];
+  assert.equal(containsPrivateStyle({posts:[{why:'ТРИ, ЧЕТЫРЕ; ПЯТЬ шесть семь восемь!'}]}, samples), true);
+  assert.equal(containsPrivateStyle({posts:[{photo:{hint:'Отдельная короткая правка'}}]}, samples), true);
+  assert.equal(containsPrivateStyle({posts:[{text:'Самостоятельная новая формулировка про шины.'}]}, samples), false);
 });

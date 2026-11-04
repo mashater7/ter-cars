@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { ROOT, loadConfig, loadDays } from './check-posts.mjs';
 import { parseCsv } from './import-queue.mjs';
-import { checkDay } from './rules.mjs';
+import { checkDay, normalize } from './rules.mjs';
 import { readStyleSamples } from './collect-style.mjs';
 
 const read = name => readFileSync(join(ROOT, name), 'utf8');
@@ -110,6 +110,26 @@ export function parseModelJson(output) {
   throw new Error('Ответ Copilot содержит незавершённый JSON');
 }
 
+// Reject full examples and six-word fragments across every persisted key/value,
+// including metadata and model-added fields. Normalization catches case/punctuation edits.
+export function containsPrivateStyle(day, samples) {
+  const values = [];
+  function visit(value) {
+    if (typeof value === 'string') values.push(' ' + normalize(value) + ' ');
+    else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value)) { values.push(' ' + normalize(key) + ' '); visit(child); }
+    }
+  }
+  visit(day);
+  return samples.some(pair => [pair.original, pair.edited].some(text => {
+    const words = normalize(text).split(' ').filter(Boolean);
+    if (!words.length) return false;
+    const fragments = [words.join(' ')];
+    for (let i = 0; i + 6 <= words.length; i++) fragments.push(words.slice(i, i + 6).join(' '));
+    return fragments.some(fragment => values.some(value => value.includes(' ' + fragment + ' ')));
+  }));
+}
+
 export function generateDrafts(date, { runner = spawnSync } = {}) {
   const file = join(ROOT, 'drafts', `${date}.json`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
@@ -123,11 +143,13 @@ export function generateDrafts(date, { runner = spawnSync } = {}) {
   if (!Number.isFinite(collectedAt) || collectedAt > Date.now() + 6 * 3600_000 || Date.now() - collectedAt > 6 * 3600_000) {
     throw new Error('Снимок live-исследования старше 6 часов или имеет неверную дату; запусти сбор заново.');
   }
+  const styleSamples = readStyleSamples(process.env.TER_STYLE_FILE);
+  const prompt = buildPrompt(date, research, styleSamples);
   const result = runner('copilot', [
-    '-p', buildPrompt(date, research, readStyleSamples(process.env.TER_STYLE_FILE)), '-s', '--no-ask-user',
+    '-s', '--no-ask-user',
     '--deny-tool=shell', '--deny-tool=write', '--deny-tool=read', '--deny-tool=url', '--deny-tool=memory',
   ], {
-    cwd: ROOT, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 25 * 60 * 1000,
+    cwd: ROOT, input: prompt, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 25 * 60 * 1000,
   });
   if (result.error) throw new Error('Не удалось выполнить Copilot CLI; содержимое запроса и ответа скрыто.');
   if (result.status !== 0) throw new Error(`Copilot CLI завершился с кодом ${result.status}; содержимое запроса и ответа скрыто.`);
@@ -140,6 +162,7 @@ export function generateDrafts(date, { runner = spawnSync } = {}) {
   if (checked.errors.length || sourceErrors.length) {
     throw new Error(`Черновики отклонены валидатором:\n${checked.errors.length + sourceErrors.length} ошибок; содержимое ответа скрыто.`);
   }
+  if (containsPrivateStyle(day, styleSamples)) throw new Error('Черновики отклонены: обнаружено совпадение с текстом приватных примеров; содержимое скрыто.');
   day.generated_at = day.generated_at || new Date().toISOString();
   writeFileSync(file, `${JSON.stringify(day, null, 2)}\n`, { flag: 'wx' });
   return { skipped: false, file, count: day.posts.length };

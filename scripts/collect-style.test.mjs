@@ -76,3 +76,17 @@ test('generator reads optional validated snapshots and ignores absent or damaged
     assert.deepEqual(readStyleSamples(path), []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('collector keeps latest twenty bounded pairs and oversized fields fall back safely', async () => {
+  const items = Array.from({ length: 50 }, (_, i) => ({ ...pair, id: `fixture-${i}`, original: 'а'.repeat(500), edited: 'б'.repeat(500), editedAt: new Date(Date.UTC(2026, 0, i + 1)).toISOString() }));
+  const result = await collectStyle({ endpoint, key: 'test-key', fetcher: async () => ({ok:true, json:async () => ({items})}) });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.items.length, 20);
+  assert.equal(result.items[0].id, 'fixture-49');
+  assert.equal(result.items.at(-1).id, 'fixture-30');
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) < 45000);
+  for (const field of ['original', 'edited', 'id', 'rubric', 'editedAt']) {
+    const invalid = await collectStyle({ endpoint, key: 'test-key', fetcher: async () => ({ok:true, json:async () => ({items:[{...pair, [field]:'x'.repeat(501)}]})}) });
+    assert.equal(invalid.status, 'unavailable');
+  }
+});
