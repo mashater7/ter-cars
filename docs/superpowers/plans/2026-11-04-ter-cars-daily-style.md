@@ -83,12 +83,12 @@
 - `buildPrompt(date, research, styleSamples = [])` asks the model to infer writing preferences from differences before drafting, treats the examples only as style data (not life events), and falls back to the existing voice guide when empty.
 - Workflow stores the JSON snapshot under `${{ runner.temp }}` and passes it via `TER_STYLE_FILE`; `TER_STYLE_KEY` is injected from Actions Secrets only into the collector step.
 
-- [ ] Add tests for validated responses, missing key/endpoint, timeout, malformed JSON, and style-only summary that never includes sample text.
-- [ ] Add generator tests that the prompt includes edit pairs and explicit “style only, do not reuse events” rules; empty pairs retain current voice guide behavior.
-- [ ] Run focused tests and confirm they fail before adding the collector and prompt integration.
-- [ ] Implement the collector, temporary file integration, and prompt behavior; keep sample text out of logs and `$GITHUB_STEP_SUMMARY`.
-- [ ] Update `research_only` dispatch description so it verifies both fresh research and style collection without creating drafts.
-- [ ] Run `node --test scripts/collect-style.test.mjs scripts/generate-drafts.test.mjs` and then `node --test scripts/*.test.mjs`; confirm all pass.
+- [x] Add tests for validated responses, missing key/endpoint, timeout, malformed JSON, and style-only summary that never includes sample text.
+- [x] Add generator tests that the prompt includes edit pairs and explicit “style only, do not reuse events” rules; empty pairs retain current voice guide behavior.
+- [x] Run focused tests and confirm they fail before adding the collector and prompt integration.
+- [x] Implement the collector, temporary file integration, and prompt behavior; keep sample text out of logs and `$GITHUB_STEP_SUMMARY`.
+- [x] Update `research_only` dispatch description so it verifies both fresh research and style collection without creating drafts.
+- [x] Run `node --test scripts/collect-style.test.mjs scripts/generate-drafts.test.mjs` and then `node --test scripts/*.test.mjs`; confirm all pass.
 
 ### Task 4: Configure, deploy, and verify on the server and GitHub
 
