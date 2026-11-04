@@ -46,16 +46,27 @@
 - Modify: `scripts/rules.test.mjs`
 
 - [ ] Keep historical `perDay` and `slots` rows; append 20 from 2026-11-05 and lower global `minGapMin` to 45.
-- [ ] Add a clear prompt instruction: produce exactly 20 candidates, and they remain drafts until each is separately approved; skipped/unapproved candidates must never be treated as approved. The validator requires the exact count and configured slot order from 05.11 onward, while preserving any historical manually adjusted times.
-- [ ] Update the schedule-contract test and historical expectations: 2 through 02.11, 4 on 03–04.11, 20 from 05.11.
-- [ ] Run `node --test scripts/*.test.mjs` and `node scripts/check-posts.mjs`; confirm all existing historical drafts still validate.
+- [x] Add a clear prompt instruction: produce exactly 20 candidates, and they remain drafts until each is separately approved; skipped/unapproved candidates must never be treated as approved. The validator requires the exact count and configured slot order from 05.11 onward, while preserving any historical manually adjusted times.
+- [x] Update the schedule-contract test and historical expectations: 2 through 02.11, 4 on 03–04.11, 20 from 05.11.
+- [x] Run `node --test scripts/*.test.mjs` and `node scripts/check-posts.mjs`; confirm all existing historical drafts still validate.
 
-### Task 3: Review and publish the change through GitHub
+### Task 3: Connect the generator through GitHub Actions
+
+**Files:**
+- Add: `.github/workflows/generate-drafts.yml`
+- Add: `scripts/generate-drafts.mjs` and its tests
+
+- [x] Schedule GitHub Copilot CLI daily at 15:00 Moscow time using the short-lived Actions token, with all Copilot tools denied.
+- [x] Validate model JSON and commit only the new draft file; never approve or publish posts.
+- [x] Run the workflow manually for 2026-11-05; confirm it succeeds and creates exactly 20 valid drafts.
+- [x] Verify the generated draft commit and JSON file exist on `main`; the approval site is expected to read the repository's current drafts through its existing integration.
+
+### Task 4: Review and publish the change through GitHub
 
 **Files:**
 - Review: `config.json`, `PROMPT.md`, `scripts/rules.test.mjs`, this spec and plan.
 
 - [ ] Review the diff for exact count, times, date boundary, quiet window, and individual approval language.
-- [ ] Commit the change and push it to `main` in `mashater7/ter-cars`, following the repository's direct-main workflow.
-- [ ] Verify GitHub `main` contains the commit and the remote config has 20 slots from 05.11.
-- [ ] Verify the server imports the updated public config without publishing any post.
+- [x] Commit the change and push it to `main` in `mashater7/ter-cars`, following the repository's direct-main workflow.
+- [x] Verify GitHub `main` contains the commit and the remote config has 20 slots from 05.11.
+- [x] Verify GitHub Actions created and committed 20 valid drafts, without publishing any post.
