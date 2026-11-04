@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       research_only:
-        description: 'Проверить live-сбор без генерации черновиков'
+        description: 'Проверить live-сбор и сбор правок стиля без генерации черновиков'
         required: false
         type: boolean
         default: false
@@ -51,11 +51,19 @@ jobs:
           TER_RESEARCH_FILE: ${{ runner.temp }}/ter-cars-research.json
         run: node scripts/collect-research.mjs "$TER_RESEARCH_FILE"
 
+      - name: Collect optional private style edits
+        env:
+          TER_STYLE_ENDPOINT: https://72-56-123-163.sslip.io/api/ter/style-samples
+          TER_STYLE_KEY: ${{ secrets.TER_STYLE_KEY }}
+          TER_STYLE_FILE: ${{ runner.temp }}/ter-cars-style.json
+        run: node scripts/collect-style.mjs "$TER_STYLE_FILE"
+
       - name: Generate and validate drafts
         if: ${{ inputs.research_only != true }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DRAFT_DATE: ${{ steps.target.outputs.date }}
+          TER_STYLE_FILE: ${{ runner.temp }}/ter-cars-style.json
           TER_RESEARCH_FILE: ${{ runner.temp }}/ter-cars-research.json
         run: node scripts/generate-drafts.mjs
 

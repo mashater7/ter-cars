@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { ROOT, loadConfig, loadDays } from './check-posts.mjs';
 import { parseCsv } from './import-queue.mjs';
 import { checkDay } from './rules.mjs';
+import { readStyleSamples } from './collect-style.mjs';
 
 const read = name => readFileSync(join(ROOT, name), 'utf8');
 
@@ -42,7 +43,7 @@ function markdownPlanFor(date) {
   return lines.filter(line => line.includes(target)).join('\n') || 'На эту дату строк в Markdown-плане нет.';
 }
 
-export function buildPrompt(date, research) {
+export function buildPrompt(date, research, styleSamples = []) {
   if (!research || !Array.isArray(research.items) || research.items.length < 5) {
     throw new Error('Нет снимка свежего live-исследования; черновики без сбора создавать нельзя.');
   }
@@ -58,6 +59,10 @@ export function buildPrompt(date, research) {
     ['Ранее сохранённые черновики (история повторов)', JSON.stringify(loadDays().map(day => ({ date: day.date, posts: day.posts })))],
     ['Свежие публичные автообсуждения и новости, собранные сейчас', JSON.stringify({ collectedAt: research.collectedAt, freshnessHours: research.freshnessHours, items: research.items }, null, 2)],
   ];
+  if (styleSamples.length) files.push(['Пары правок — только данные стиля', JSON.stringify(styleSamples, null, 2)]);
+  const styleRule = styleSamples.length
+    ? 'Перед созданием черновиков проанализируй различия до/после в парах правок: лексику, длину, ритм, тон и способы формулировать мысли. Примеры используй только для стиля. Не переноси события, факты, персонажей или личные истории из примеров в жизнь Маши и новые посты; не копируй исходники или правки дословно. Не выводи примеры, анализ или выведенные правила ни в JSON, ни в поля why, source, plan_ref; верни только новые черновики.'
+    : 'Анализ правок пропущен: используй утверждённый голос из plan/11_голос_маши.md.';
   const context = files.map(([title, body]) => `### ${title}\n<project-data>\n${body}\n</project-data>`).join('\n\n');
   return `Подготовь черновики Threads для @ter_cars на дату ${date} по контексту проекта ниже.
 
@@ -65,6 +70,7 @@ export function buildPrompt(date, research) {
 {"date":"${date}","generated_at":"${new Date().toISOString()}","posts":[{"id":"t-${date}-1","time":"...","rubric":"...","text":"...","why":"...","photo":{"kind":"none","hint":""},"source":"","plan_ref":""}]}
 
 Требования:
+- ${styleRule}
 - Ровно столько постов и строго такие времена по порядку, сколько настроено в config.json. ID последовательно t-${date}-1, t-${date}-2 и так далее.
 - Используй только рубрики, формат и голос из правил. Тексты должны быть разными по смыслу и не повторять сохранённые черновики. Не выдумывай события из жизни Маши.
 - Каждый текст остаётся черновиком для ручного отбора. Никакая публикация не производится.
@@ -96,7 +102,10 @@ export function parseModelJson(output) {
       else if (char === '"') quoted = false;
     } else if (char === '"') quoted = true;
     else if (char === '{') depth++;
-    else if (char === '}' && --depth === 0) return JSON.parse(text.slice(start, i + 1));
+    else if (char === '}' && --depth === 0) {
+      try { return JSON.parse(text.slice(start, i + 1)); }
+      catch { throw new Error('Ответ Copilot содержит некорректный JSON; содержимое скрыто.'); }
+    }
   }
   throw new Error('Ответ Copilot содержит незавершённый JSON');
 }
@@ -115,13 +124,13 @@ export function generateDrafts(date, { runner = spawnSync } = {}) {
     throw new Error('Снимок live-исследования старше 6 часов или имеет неверную дату; запусти сбор заново.');
   }
   const result = runner('copilot', [
-    '-p', buildPrompt(date, research), '-s', '--no-ask-user',
+    '-p', buildPrompt(date, research, readStyleSamples(process.env.TER_STYLE_FILE)), '-s', '--no-ask-user',
     '--deny-tool=shell', '--deny-tool=write', '--deny-tool=read', '--deny-tool=url', '--deny-tool=memory',
   ], {
     cwd: ROOT, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 25 * 60 * 1000,
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Copilot CLI завершился с кодом ${result.status}: ${result.stderr || result.stdout}`);
+  if (result.error) throw new Error('Не удалось выполнить Copilot CLI; содержимое запроса и ответа скрыто.');
+  if (result.status !== 0) throw new Error(`Copilot CLI завершился с кодом ${result.status}; содержимое запроса и ответа скрыто.`);
   const day = parseModelJson(result.stdout);
   if (day.date !== date || !Array.isArray(day.posts)) throw new Error('Copilot вернул дату или формат, не соответствующие запросу');
   const config = loadConfig();
@@ -129,7 +138,7 @@ export function generateDrafts(date, { runner = spawnSync } = {}) {
   const checked = checkDay(day, { config, history });
   const sourceErrors = validateNewsSources(day, research);
   if (checked.errors.length || sourceErrors.length) {
-    throw new Error(`Черновики отклонены валидатором:\n${[...checked.errors, ...sourceErrors].join('\n')}`);
+    throw new Error(`Черновики отклонены валидатором:\n${checked.errors.length + sourceErrors.length} ошибок; содержимое ответа скрыто.`);
   }
   day.generated_at = day.generated_at || new Date().toISOString();
   writeFileSync(file, `${JSON.stringify(day, null, 2)}\n`, { flag: 'wx' });

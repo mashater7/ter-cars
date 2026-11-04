@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPrompt, moscowDate, parseModelJson, validateNewsSources } from './generate-drafts.mjs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildPrompt, generateDrafts, moscowDate, parseModelJson, validateNewsSources } from './generate-drafts.mjs';
 
 const research = {
   collectedAt: '2026-11-04T12:00:00.000Z', freshnessHours: 72,
@@ -40,4 +43,54 @@ test('проверка новостных постов запрещает ссы
     { id: 'bad', rubric: 'новости', source: 'https://example.com/old' },
     { id: 'evergreen', rubric: 'личное', source: '' },
   ] }, research), ['bad: источник новости отсутствует в сегодняшнем live-сборе']);
+});
+
+test('style edits are analyzed within the drafting prompt only as wording preferences', () => {
+  const prompt = buildPrompt('2026-11-05', research, [{ id: 'synthetic', rubric: 'личное', original: 'SYNTHETIC BEFORE', edited: 'SYNTHETIC AFTER', editedAt: '2026-11-04T12:00:00.000Z' }]);
+  assert.match(prompt, /SYNTHETIC BEFORE/);
+  assert.match(prompt, /SYNTHETIC AFTER/);
+  assert.match(prompt, /различия.*до\/после/);
+  assert.match(prompt, /только.*стил/);
+  assert.match(prompt, /Не переноси события/);
+  assert.match(prompt, /Не выводи.*анализ/);
+});
+
+test('without style pairs drafting keeps the current voice guide and explicit fallback', () => {
+  const prompt = buildPrompt('2026-11-05', research, []);
+  assert.match(prompt, /plan\/11_голос_маши\.md/);
+  assert.match(prompt, /Анализ правок пропущен/);
+  assert.doesNotMatch(prompt, /SYNTHETIC/);
+});
+
+// Invalid model output must not expose private prompt examples through JSON.parse errors.
+test('malformed model JSON produces a content-free parse error', () => {
+  assert.throws(() => parseModelJson('{"text": LEAK}'), error => !error.message.includes('LEAK'));
+});
+
+
+test('generation sends edits in the same CLI prompt and never echoes rejected response data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ter-generate-test-'));
+  const previous = { research: process.env.TER_RESEARCH_FILE, style: process.env.TER_STYLE_FILE };
+  try {
+    process.env.TER_RESEARCH_FILE = join(dir, 'research.json');
+    process.env.TER_STYLE_FILE = join(dir, 'style.json');
+    writeFileSync(process.env.TER_RESEARCH_FILE, JSON.stringify({ ...research, collectedAt: new Date().toISOString() }));
+    writeFileSync(process.env.TER_STYLE_FILE, JSON.stringify({ status: 'ok', items: [{ id: 'fixture', rubric: 'личное', original: 'SYNTHETIC BEFORE', edited: 'SYNTHETIC AFTER', editedAt: '2026-11-04T12:00:00.000Z' }] }));
+    let calls = 0, capturedCommand, capturedPrompt;
+    assert.throws(() => generateDrafts('2099-11-05', { runner: (command, args) => {
+      calls++;
+      capturedCommand = command;
+      capturedPrompt = args[args.indexOf('-p') + 1];
+      return { status: 0, stdout: JSON.stringify({ date: '2099-11-05', posts: [{ id: 'LEAK', rubric: 'LEAK', text: 'Draft', time: 'bad', photo: { kind: 'none' } }] }) };
+    } }), error => !error.message.includes('LEAK'));
+    assert.equal(calls, 1);
+    assert.equal(capturedCommand, 'copilot');
+    assert.match(capturedPrompt, /SYNTHETIC AFTER/);
+    assert.throws(() => generateDrafts('2099-11-05', { runner: () => ({ status: 1, stderr: 'LEAK', stdout: 'LEAK' }) }), error => !error.message.includes('LEAK'));
+  } finally {
+    for (const [key, value] of [['TER_RESEARCH_FILE', previous.research], ['TER_STYLE_FILE', previous.style]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
