@@ -63,10 +63,10 @@
 - `ter.styleSamples()` loads pult state and source days, calls `buildStyleSamples`, and returns only its `{ items }` payload.
 - A matching route returns `Cache-Control: no-store`; other methods or keys are rejected before the existing write-capable `/api/ter/*` handler.
 
-- [ ] Add route-auth tests for valid key, missing/wrong key, wrong method, ordinary `TER_KEY`, and Bara key.
-- [ ] Run the focused tests and confirm the route authorization helper is missing.
-- [ ] Implement the exact path guard and minimal response; do not include status, photos, approval fields, account state, or raw state objects.
-- [ ] Run route helper and style sampler tests; confirm all pass.
+- [x] Add route-auth tests for valid key, missing/wrong key, wrong method, ordinary `TER_KEY`, and Bara key.
+- [x] Run the focused tests and confirm the route authorization helper is missing.
+- [x] Implement the exact path guard and minimal response; do not include status, photos, approval fields, account state, or raw state objects.
+- [x] Run route helper and style sampler tests; confirm all pass.
 
 ### Task 3: Fetch style samples and apply them in the daily generator
 
