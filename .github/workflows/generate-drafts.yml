@@ -1,0 +1,63 @@
+name: Generate Threads drafts
+
+on:
+  schedule:
+    - cron: '0 12 * * *' # 15:00 Europe/Moscow
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Дата черновиков в формате YYYY-MM-DD (пусто — завтра по Москве)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  copilot-requests: write
+
+concurrency:
+  group: ter-cars-draft-generation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install pinned GitHub Copilot CLI
+        run: npm install --global @github/copilot@1.0.105
+
+      - name: Resolve target date
+        id: target
+        env:
+          REQUESTED_DATE: ${{ inputs.date }}
+        run: |
+          node --input-type=module -e 'const d = process.env.REQUESTED_DATE || new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + 86400000)); console.log(`date=${d}`)' >> "$GITHUB_OUTPUT"
+
+      - name: Generate and validate drafts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRAFT_DATE: ${{ steps.target.outputs.date }}
+        run: node scripts/generate-drafts.mjs
+
+      - name: Commit drafts only
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.date }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "drafts/$TARGET_DATE.json"
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No new draft file to commit."
+            exit 0
+          fi
+          git commit -m "Посты @ter_cars на $TARGET_DATE"
+          git push origin HEAD:main
