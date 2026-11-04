@@ -104,4 +104,3 @@
 - [ ] Run `generate-drafts.yml` with `research_only=true`; confirm cloud runner reads style samples and fresh public research, logs only counts, and creates/changes no drafts.
 - [ ] Run the complete local project tests, `node scripts/check-posts.mjs`, server unit tests, and `git diff --check`.
 - [ ] Review repository and server diffs; commit and push only the source/spec/plan changes to `main`. Verify clean state and successful cloud check.
-
