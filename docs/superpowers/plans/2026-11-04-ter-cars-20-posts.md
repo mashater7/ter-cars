@@ -4,7 +4,7 @@
 
 **Goal:** Подготовить до 20 вариантов на каждый следующий день и позволить публиковать каждый оставленный вариант только после отдельного одобрения, максимум 20 в сутки.
 
-**Architecture:** Генератор уже читает количество и времена из `config.json`, а пульт синхронизирует эту конфигурацию и публикует только одобренные карточки. Обновляем дневной лимит и расписание с 05.11.2026, сохраняем тихое окно и подгоняем минимальный интервал под 45-минутные слоты и задержку 1–6 минут.
+**Architecture:** Генератор читает количество и времена из `config.json`, а пульт синхронизирует эту конфигурацию и публикует только одобренные карточки. GitHub Actions перед генерацией собирает свежие сигналы из публичных Telegram превью, Пикабу и RSS «За рулём»; снимок подаётся модели, но не коммитится. Обновляем дневной лимит и расписание с 05.11.2026, сохраняем тихое окно и подгоняем минимальный интервал под 45-минутные слоты и задержку 1–6 минут.
 
 **Tech Stack:** Node.js ES modules, встроенный `node:test`, JSON.
 
@@ -70,3 +70,17 @@
 - [x] Commit the change and push it to `main` in `mashater7/ter-cars`, following the repository's direct-main workflow.
 - [x] Verify GitHub `main` contains the commit and the remote config has 20 slots from 05.11.
 - [x] Verify GitHub Actions created and committed 20 valid drafts, without publishing any post.
+
+### Task 5: Collect fresh research before generating drafts
+
+**Files:**
+- Add: `scripts/collect-research.mjs` and tests
+- Modify: `.github/workflows/generate-drafts.yml`, `scripts/generate-drafts.mjs` and tests
+- Modify: this spec and plan
+
+- [x] Fetch public Telegram previews, Pikabu automotive hot page (respecting robots and crawl delay), and Za Rulem RSS; keep only relevant entries from the past 72 hours.
+- [x] Fail closed when fewer than five fresh entries or fewer than two source categories are available; never fall back silently to old research.
+- [x] Pass the live snapshot to the generator and reject news items whose source URL was not collected in this run.
+- [x] Add a `research_only` workflow-dispatch option for checking the cloud collection without generating drafts.
+- [x] Run parser tests and full project tests; validate the collector against live public pages locally.
+- [ ] Push and run the research-only workflow in GitHub Actions to verify runner access to the live sources.

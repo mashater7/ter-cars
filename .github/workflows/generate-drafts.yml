@@ -9,6 +9,11 @@ on:
         description: 'Дата черновиков в формате YYYY-MM-DD (пусто — завтра по Москве)'
         required: false
         type: string
+      research_only:
+        description: 'Проверить live-сбор без генерации черновиков'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -41,13 +46,21 @@ jobs:
         run: |
           node --input-type=module -e 'const d = process.env.REQUESTED_DATE || new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + 86400000)); console.log(`date=${d}`)' >> "$GITHUB_OUTPUT"
 
+      - name: Collect fresh public research
+        env:
+          TER_RESEARCH_FILE: ${{ runner.temp }}/ter-cars-research.json
+        run: node scripts/collect-research.mjs "$TER_RESEARCH_FILE"
+
       - name: Generate and validate drafts
+        if: ${{ inputs.research_only != true }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DRAFT_DATE: ${{ steps.target.outputs.date }}
+          TER_RESEARCH_FILE: ${{ runner.temp }}/ter-cars-research.json
         run: node scripts/generate-drafts.mjs
 
       - name: Commit drafts only
+        if: ${{ inputs.research_only != true }}
         env:
           TARGET_DATE: ${{ steps.target.outputs.date }}
         run: |
