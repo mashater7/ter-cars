@@ -3,6 +3,7 @@ name: Generate Threads drafts
 on:
   schedule:
     - cron: '0 12 * * *' # 15:00 Europe/Moscow
+    - cron: '17 15,18 * * *' # Резерв в 18:17 и 21:17 МСК; существующий день не перезаписывается
   workflow_dispatch:
     inputs:
       date:
